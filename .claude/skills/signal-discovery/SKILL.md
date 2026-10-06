@@ -1,6 +1,8 @@
 ---
 name: signal-discovery
 description: Discover missing AI provenance and watermark coverage in the remove-ai-watermarks library from fresh or historical corpora, then validate detection and removal parity. Use for corpus gap mining, periodic signal audits, new-provider discovery, or deciding whether old retained data must be replayed. Do not use for ordinary per-file identification or removal.
+metadata:
+  internal: true
 ---
 
 # Signal discovery

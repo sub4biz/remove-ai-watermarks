@@ -26,6 +26,11 @@ SkillsMP indexes public GitHub `SKILL.md` files and does not need a separate
 upload. ClawHub and the Claude community marketplace are explicit publishes;
 see [Release and distribution](release-and-distribution.md#agent-skill).
 
+Every maintainer skill under `.claude/skills/` carries `metadata.internal: true`.
+The skills CLI discovers every `SKILL.md` in that directory, so without the flag
+`npx skills add` offers it and skills.sh lists it beside the published skill.
+`tests/test_agent_skill.py` fails on a project skill that lacks it.
+
 ## Where the skill can actually be listed
 
 Most skill catalogs are install registries, not discovery engines. A listing

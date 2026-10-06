@@ -55,6 +55,16 @@ def test_skill_frontmatter_matches_agent_skills_spec() -> None:
     assert "remove-ai-watermarks" in description
 
 
+def test_project_skills_stay_out_of_public_skill_discovery() -> None:
+    # `npx skills add` and skills.sh discover every SKILL.md under .claude/skills;
+    # metadata.internal hides a maintainer-only skill from that listing.
+    project_skills = sorted((ROOT / ".claude" / "skills").glob("*/SKILL.md"))
+    assert project_skills
+    for path in project_skills:
+        frontmatter = _frontmatter(path.read_text(encoding="utf-8"))
+        assert re.search(r"(?m)^metadata:\n  internal: true$", frontmatter), path
+
+
 def test_plugin_and_marketplace_names_agree() -> None:
     plugin = json.loads(PLUGIN.read_text(encoding="utf-8"))
     marketplace = json.loads(MARKETPLACE.read_text(encoding="utf-8"))

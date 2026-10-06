@@ -1,6 +1,8 @@
 ---
 name: provider-oracles
 description: Run hash-bound Google, OpenAI, Microsoft, or Meta watermark-oracle checks for this repository. Use for provider verification, multi-account Gemini checks, isolated Playwright checks, or recording oracle evidence.
+metadata:
+  internal: true
 ---
 
 # Provider oracles
