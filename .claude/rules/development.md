@@ -79,6 +79,8 @@ The same rule applies to install hints: name the extra that actually makes the c
 
 Run `bash maintain.sh` from the repository root. The authoritative type gate is scoped to `src/`; full-project Pyright can exhaust Node memory on the ML dependency graph.
 
+The full gate outlasts the agent's 10-minute foreground shell cap, which kills it mid-suite. Run it detached under `nohup caffeinate -dimu` with its exit code written to a file and poll that file. To stop a stray run, kill its own PID, never `pkill -f pytest`, which also takes down other sessions' suites on the machine.
+
 The security scanner's exit status is authoritative, including a failure after a success
 message. `tests/test_maintenance.py` checks clean, vulnerable, and broken scanner
 runs through the real shell entry point, and pins the CI `security` job to the
