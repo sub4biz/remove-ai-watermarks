@@ -181,15 +181,22 @@ class _RecordingSdxlPipe:
     def fuse_lora(self) -> None:
         self.calls.append(("fuse_lora",))
 
-    def enable_sequential_cpu_offload(self, *, device: str) -> None:
-        self.calls.append(("enable_sequential_cpu_offload", device))
+    def enable_sequential_cpu_offload(self, *, device: str, gpu_id: int | None = None) -> None:
+        self.calls.append(("enable_sequential_cpu_offload", device, gpu_id))
 
 
 class TestSdxlGlobalPlacement:
     @staticmethod
-    def _load(monkeypatch: pytest.MonkeyPatch, *, requested: bool | None, total_memory_gib: float) -> list[Any]:
+    def _load(
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        requested: bool | None,
+        total_memory_gib: float,
+        current_device: int = 0,
+    ) -> list[Any]:
         diffusers = pytest.importorskip("diffusers")
-        pytest.importorskip("torch")
+        torch = pytest.importorskip("torch")
+        monkeypatch.setattr(torch.cuda, "current_device", lambda: current_device)
         from remove_ai_watermarks._internal.sdxl_zimage_pipeline import SdxlZImagePipeline
 
         calls: list[Any] = []
@@ -212,7 +219,7 @@ class TestSdxlGlobalPlacement:
     def test_a_small_card_streams_the_fused_stack_instead_of_moving_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls = self._load(monkeypatch, requested=None, total_memory_gib=7.6)
         # The offload hooks stream their own copy of each weight, so they must follow the fuse.
-        assert calls == [("load_lora_weights",), ("fuse_lora",), ("enable_sequential_cpu_offload", "cuda")]
+        assert calls == [("load_lora_weights",), ("fuse_lora",), ("enable_sequential_cpu_offload", "cuda", 0)]
 
     def test_a_large_card_keeps_the_stack_resident_as_before(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls = self._load(monkeypatch, requested=None, total_memory_gib=23.5)
@@ -221,7 +228,21 @@ class TestSdxlGlobalPlacement:
     def test_cpu_offload_streams_even_on_a_large_card(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls = self._load(monkeypatch, requested=False, total_memory_gib=79.2)
         assert ("to", "cuda") not in calls
-        assert calls[-1] == ("enable_sequential_cpu_offload", "cuda")
+        assert calls[-1] == ("enable_sequential_cpu_offload", "cuda", 0)
+
+    @pytest.mark.parametrize("current_device", [1, 2])
+    @pytest.mark.parametrize(("requested", "total_memory_gib"), [(None, 7.6), (False, 79.2)])
+    def test_streaming_uses_the_current_cuda_device(
+        self, monkeypatch: pytest.MonkeyPatch, current_device: int, requested: bool | None, total_memory_gib: float
+    ) -> None:
+        calls = self._load(
+            monkeypatch,
+            requested=requested,
+            total_memory_gib=total_memory_gib,
+            current_device=current_device,
+        )
+        assert ("to", "cuda") not in calls
+        assert calls[-1] == ("enable_sequential_cpu_offload", "cuda", current_device)
 
     def test_cpu_offload_reaches_the_sdxl_stack(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from remove_ai_watermarks._internal import sdxl_zimage_pipeline

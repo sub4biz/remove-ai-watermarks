@@ -192,7 +192,7 @@ class TestNoReembeddedWatermark:
         # from_config would otherwise resolve the mock's config as a repo id.
         monkeypatch.setattr(diffusers.EulerDiscreteScheduler, "from_config", lambda *a, **k: MagicMock())
 
-        pipeline = SdxlZImagePipeline(device="cuda", torch_dtype=None)
+        pipeline = SdxlZImagePipeline(device="cuda", torch_dtype=None, keep_global_models_on_device=True)
         monkeypatch.setattr(type(pipeline), "_require_cuda", lambda self: None)
         pipeline._load_global()
 

@@ -2222,6 +2222,12 @@ The resident config deliberately passes no `"disk"` value anywhere. DiffSynth la
 `disk_offload` once, from `offload_dtype`, so leaving the sentinel in place while
 pointing every device at CUDA would keep the meta-drop and re-read.
 
+Sequential SDXL offload receives the current CUDA device index explicitly, so
+its hooks use the same GPU as the residency probes, input tensors, and seeded
+generators. Omitting the index makes Diffusers select GPU 0 even after
+`torch.cuda.set_device(1)`. `test_streaming_uses_the_current_cuda_device` in
+`test_cpu_offload.py` covers automatic and forced streaming on nonzero devices.
+
 The SDXL stack (fp16 UNet, Canny ControlNet, both text encoders, the fp16-fix VAE)
 is ~8.8 GiB of weights, and the UNet and the ControlNet run together on every
 denoising step. Below the 12 GiB floor `_load_global` fuses the Lightning LoRA on

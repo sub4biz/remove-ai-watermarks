@@ -124,7 +124,7 @@ class SdxlZImagePipeline(TwoStageZImagePipeline):
             # After the fuse: the offload hooks keep their own CPU copy of each weight
             # and stream that copy, so fusing later would never reach what runs.
             self._progress("Streaming the SDXL stack from CPU (card below the residency floor)...")
-            pipe.enable_sequential_cpu_offload(device=self.device)
+            pipe.enable_sequential_cpu_offload(device=self.device, gpu_id=torch.cuda.current_device())
         self._sdxl_pipe = pipe
         return pipe
 
