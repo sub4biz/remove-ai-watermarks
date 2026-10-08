@@ -63,13 +63,13 @@ PROFILE_ADAPTIVE_POLISH = {
 
 # Which profiles let ``--cpu-offload`` reach their GLOBAL stack. The face stage
 # honours the flag everywhere, because residency lives on the shared base, but the
-# global stack is each profile's own: only qwen-zimage streams it, through
-# ``_qwen_vram_config``. chroma-zimage and sdxl-zimage load theirs with a plain
-# ``.to(device)``, so on a card below the face-stage residency floor the flag has
-# nothing left to change and the run behaves as if it were absent. Data rather than
-# a subclass attribute, because the caller that must warn cannot import a profile
-# module without pulling in Diffusers.
-GLOBAL_OFFLOAD_PROFILES = frozenset({QWEN_ZIMAGE_PROFILE})
+# global stack is each profile's own: qwen-zimage streams it through
+# ``_qwen_vram_config`` and sdxl-zimage through Diffusers sequential offload.
+# chroma-zimage loads its stack with a plain ``.to(device)``, so on a card below the
+# face-stage residency floor the flag has nothing left to change there and the run
+# behaves as if it were absent. Data rather than a subclass attribute, because the
+# caller that must warn cannot import a profile module without pulling in Diffusers.
+GLOBAL_OFFLOAD_PROFILES = frozenset({QWEN_ZIMAGE_PROFILE, SDXL_ZIMAGE_PROFILE})
 
 SDXL_LIGHTNING_MODEL_ID = "ByteDance/SDXL-Lightning"
 SDXL_LIGHTNING_PATTERN = "sdxl_lightning_4step_lora.safetensors"

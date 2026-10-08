@@ -175,9 +175,9 @@ class WatermarkRemover:
             return
         logger.warning(
             "--cpu-offload does not reach the global stack of the '%s' pipeline: only "
-            "qwen-zimage streams its global model between CUDA calls. The face stage "
-            "still honours the flag, so below the face-stage residency floor this run "
-            "behaves as if --cpu-offload were absent.",
+            "qwen-zimage and sdxl-zimage stream their global model between CUDA calls. "
+            "The face stage still honours the flag, so below the face-stage residency "
+            "floor this run behaves as if --cpu-offload were absent.",
             self.model_profile,
         )
 

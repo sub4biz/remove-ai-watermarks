@@ -47,11 +47,28 @@ _LATENT_GRID = 8
 # The reference graph loads the Qwen LoRA at 0.8; carrying that number to a different
 # LoRA on a different architecture would be imitation, not parity.
 SDXL_STEPS = 4
+# Below this floor the global stack streams its weights from CPU layer by layer; at or
+# above it the stack stays resident. The fp16 UNet, Canny ControlNet, both text
+# encoders and the VAE are ~8.8 GiB of weights, and the UNet and the ControlNet run
+# together on every step, so model-level offload cannot get under an 8 GiB card.
+# Benchmark in docs/module-internals.md, "CPU offload".
+RESIDENT_SDXL_GLOBAL_MIN_VRAM_GIB = 12.0
 
 
 def sdxl_target_size(width: int, height: int) -> tuple[int, int]:
     """Floor dimensions to SDXL's latent grid without changing aspect."""
     return _target_size(width, height, _LATENT_GRID)
+
+
+def resolve_sdxl_global_residency(
+    requested: bool | None,
+    *,
+    total_memory_gib: float,
+) -> bool:
+    """Keep the SDXL global stack resident when explicitly requested or safely sized."""
+    if requested is not None:
+        return requested
+    return total_memory_gib >= RESIDENT_SDXL_GLOBAL_MIN_VRAM_GIB
 
 
 @dataclass
@@ -63,6 +80,12 @@ class SdxlZImagePipeline(TwoStageZImagePipeline):
     def __post_init__(self) -> None:
         super().__post_init__()
         self._sdxl_pipe: Any = None
+
+    def _keep_global_models_resident(self) -> bool:
+        return resolve_sdxl_global_residency(
+            self.keep_global_models_on_device,
+            total_memory_gib=self._total_vram_gib(),
+        )
 
     def _load_global(self) -> Any:
         if self._sdxl_pipe is not None:
@@ -89,11 +112,19 @@ class SdxlZImagePipeline(TwoStageZImagePipeline):
             variant="fp16",
             add_watermarker=False,
             **token,
-        ).to(self.device)
+        )
+        resident = self._keep_global_models_resident()
+        if resident:
+            pipe = pipe.to(self.device)
         pipe.load_lora_weights(hf_hub_download(SDXL_LIGHTNING_MODEL_ID, SDXL_LIGHTNING_PATTERN, **token))
         pipe.fuse_lora()
         # SDXL-Lightning is distilled against trailing timestep spacing.
         pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config, timestep_spacing="trailing")
+        if not resident:
+            # After the fuse: the offload hooks keep their own CPU copy of each weight
+            # and stream that copy, so fusing later would never reach what runs.
+            self._progress("Streaming the SDXL stack from CPU (card below the residency floor)...")
+            pipe.enable_sequential_cpu_offload(device=self.device, gpu_id=torch.cuda.current_device())
         self._sdxl_pipe = pipe
         return pipe
 

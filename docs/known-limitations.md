@@ -400,12 +400,20 @@ global Qwen stage is tiled; the face stage runs after tile blending.
 every profile, streaming weights instead of pinning them. It reduces CUDA memory
 pressure at the cost of speed.
 
-It reaches the global stack of `qwen-zimage` only. That stack is each
-profile's own, and `chroma-zimage` and `sdxl-zimage` load theirs with a plain
-`.to(device)`. On a card below the face-stage residency floor, where the face
-stack was already offloading, the flag changes nothing at all for those two: the
-run behaves as if it were absent. The library says so on the way past, as a
-warning ahead of the model load.
+It reaches the global stack of `qwen-zimage` and `sdxl-zimage`. That stack is
+each profile's own, and `chroma-zimage` loads its stack with a plain `.to(device)`.
+On a card below the face-stage residency floor, where the face stack was already
+offloading, the flag changes nothing at all for that profile: the run behaves as
+if it were absent. The library says so on the way past, as a warning ahead of the
+model load.
+
+`sdxl-zimage` streams its global stack without being asked on a card below
+`RESIDENT_SDXL_GLOBAL_MIN_VRAM_GIB` (12 GiB). Its UNet and Canny ControlNet run
+together on every step, so the stack does not fit an 8 GiB card even with
+model-level offload. A resident load there does not always fail loudly: under
+the Windows display driver, including WSL2, CUDA can spill the overflow into
+shared system memory, and the run goes on at a fraction of the speed instead of
+raising an out-of-memory error.
 
 Residency is otherwise chosen from the card's total VRAM. On a card large enough
 to hold a stack, offloading is pure waste: DiffSynth drops weights to the meta
