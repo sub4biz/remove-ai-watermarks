@@ -2185,27 +2185,27 @@ Regression coverage:
 
 ### CPU offload
 
-CPU offload is enabled only when requested. Nothing calls Diffusers'
-`enable_model_cpu_offload` any more -- that belonged to the deleted single-stage
-profiles. `--cpu-offload` sets both residency fields, and they do not travel the
-same distance: the face field is read by the shared base and so applies to every
-profile, while the global field is read by `QwenZImagePipeline` alone.
-`ChromaZImagePipeline` and `SdxlZImagePipeline` load their global stack with a
-plain `.to(device)` and never consult it.
+Nothing calls Diffusers' `enable_model_cpu_offload` any more -- that belonged to
+the deleted single-stage profiles. `--cpu-offload` sets both residency fields, and
+they do not travel the same distance: the face field is read by the shared base and
+so applies to every profile, while the global field is read by `QwenZImagePipeline`
+and `SdxlZImagePipeline`. `ChromaZImagePipeline` loads its global stack with a
+plain `.to(device)` and never consults it.
 
 `GLOBAL_OFFLOAD_PROFILES` in `watermark_profiles.py` is the list, and
 `global_offload_supported` the question; `WatermarkRemover._warn_if_global_offload_unsupported`
 warns ahead of the model load rather than at construction, because `auto` picks
 its engine per-image. An explicit `auto` preload uses the qwen-zimage fallback and
 therefore keeps global offload active before that resolution. Below
-`RESIDENT_FACE_MODEL_MIN_VRAM_GIB` the flag is a no-op for the other two profiles --
-the face stack was offloading anyway and the global one does not ask -- which is
-what the warning exists to say before a download starts.
+`RESIDENT_FACE_MODEL_MIN_VRAM_GIB` the flag is a no-op for `chroma-zimage` -- the
+face stack was offloading anyway and the global one does not ask -- which is what
+the warning exists to say before a download starts.
 
 Residency is otherwise chosen from the card's total VRAM, once per stack:
 `resolve_global_model_residency` gates the mandatory Qwen stack at
-`RESIDENT_GLOBAL_MODEL_MIN_VRAM_GIB` and `resolve_face_model_residency` gates the
-optional Z-Image stack at `RESIDENT_FACE_MODEL_MIN_VRAM_GIB`.
+`RESIDENT_GLOBAL_MODEL_MIN_VRAM_GIB`, `resolve_sdxl_global_residency` gates the
+SDXL stack at `RESIDENT_SDXL_GLOBAL_MIN_VRAM_GIB`, and `resolve_face_model_residency`
+gates the optional Z-Image stack at `RESIDENT_FACE_MODEL_MIN_VRAM_GIB`.
 
 Below the global floor, `_qwen_vram_config` streams the stack from disk, which is
 what makes a 20B model runnable on a consumer card. At or above it, streaming is
@@ -2221,6 +2221,37 @@ reload itself rather than the read.
 The resident config deliberately passes no `"disk"` value anywhere. DiffSynth latches
 `disk_offload` once, from `offload_dtype`, so leaving the sentinel in place while
 pointing every device at CUDA would keep the meta-drop and re-read.
+
+The SDXL stack (fp16 UNet, Canny ControlNet, both text encoders, the fp16-fix VAE)
+is ~8.8 GiB of weights, and the UNet and the ControlNet run together on every
+denoising step. Below the 12 GiB floor `_load_global` fuses the Lightning LoRA on
+the CPU and then calls `enable_sequential_cpu_offload`; the order matters, because
+the offload hooks stream their own copy of each weight and a later fuse would never
+reach it. Measured on an RTX 5060 Laptop (8 GiB, WSL2, 16 GiB system RAM) in
+October 2026, one 1672x941 global pass at strength 0.15:
+
+| Placement | Warm pass | Peak VRAM | Peak system RAM |
+|---|---|---|---|
+| resident `.to(device)` (previous behaviour) | did not finish in 10 min | 7.9 GiB used, spilling | -- |
+| `enable_model_cpu_offload` | 237 s | 9.2 GiB reserved on an 8 GiB card | 12.4 GiB |
+| group offload, block level, CUDA stream | 92 s, or hung | 12.4 GiB reserved | 15.6 GiB |
+| group offload, leaf level, CUDA stream | 7.8 s, or hung | 5.6 GiB | 15.7 GiB |
+| group offload, leaf level, `low_cpu_mem_usage` | 21.4 s | 5.6 GiB | 9.4 GiB |
+| `enable_sequential_cpu_offload` | 12.8 s | 3-4 GiB | 8.5 GiB |
+
+The resident and model-offload rows did not fail: under the Windows display driver
+CUDA falls back to shared system memory, so PyTorch reserved more than the card
+holds and the run crawled instead of raising. The streamed group-offload variants
+pin every weight in host memory up front; on a 16 GiB machine that left the run
+finishing or hanging depending on what else held RAM, which rules them out as a
+default. All completed placements produced bit-identical images.
+
+Fusing on the CPU instead of on CUDA rounds 788 of the UNet's 3256 fused tensors
+differently, by at most one fp16 ulp (1.2e-4). On the pass above that moved the
+output by a mean of 0.16 levels (PSNR 54.3 dB against a CUDA-fused, equally
+streamed run). Cards at or above the floor keep the CUDA fuse and therefore the
+previous pixels; only a streamed run, automatic or forced with `--cpu-offload`,
+sees the difference.
 
 Regression coverage:
 
